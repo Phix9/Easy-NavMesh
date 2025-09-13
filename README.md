@@ -1,0 +1,1 @@
+请自行使用vcpkg安装SDL2与SDL_ttf库，并配置VCPKG_ROOT与PATH环境变量。

@@ -55,9 +55,9 @@ public:
 			button.render();
 		}
 
-		SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-
 		Mesh::instance()->render(renderer);
+
+		SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
 
 		for (Polygon polygon : polygons) polygon.render(renderer);
 		
@@ -93,8 +93,6 @@ private:
 
 	void on_New_click()
 	{
-		std::cout << "New" << std::endl;
-
 		if (current_polygon.vertices.size() >= 3)
 		{
 			current_polygon.done = true;
@@ -105,8 +103,6 @@ private:
 
 	void on_Finish_click()
 	{
-		std::cout << "Finish" << std::endl;
-
 		if (current_polygon.vertices.size() >= 3)
 		{
 			current_polygon.done = true;
@@ -120,7 +116,6 @@ private:
 
 		Mesh::instance()->instialize();
 		Mesh::instance()->ganerate_mesh(polygons);
-		//polygons.clear();
 	}
 };
 
