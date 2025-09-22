@@ -6,6 +6,7 @@
 #include <SDL.h>
 #include <queue>
 #include <vector>
+#include <unordered_set>
 #include <unordered_map>
 
 #include "vector2.h"
@@ -16,7 +17,9 @@ namespace std
 	{
 		size_t operator()(const Vector2& point) const
 		{
-			return hash<double>()(point.x) ^ (hash<double>()(point.y) << 1);
+			size_t h1 = hash<double>()(point.x);
+			size_t h2 = hash<double>()(point.y);
+			return h1 ^ (h2 << 1);
 		}
 	};
 }
@@ -121,6 +124,36 @@ struct Polygon
 	Polygon(std::vector<Vector2> _vertices, bool _done) :vertices(_vertices), done(_done) {}
 };
 
+const double heuristic(Vector2& p1, Vector2& p2)
+{
+	return (p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y);
+}
+
+struct Node
+{
+	double g_cost, h_cost;
+
+	Vector2 position;
+	
+	Node* parent;
+
+	const double get_f_cost() const
+	{
+		return g_cost + h_cost;
+	}
+
+	//bool operator<(const Node& n) const { return n.get_f_cost() < get_f_cost(); }
+
+	Node() = default;
+	Node(Vector2& _position, Node* _parent) : position(_position), parent(_parent) {}
+};
+
+struct NodeCompare {
+	bool operator()(const Node* node1, const Node* node2) const {
+		return node1->get_f_cost() > node2->get_f_cost();
+	}
+};
+
 class Mesh : public Singleton<Mesh>
 {
 	friend class Singleton<Mesh>;
@@ -155,23 +188,141 @@ public:
 		}
 
 		enforce_constraints();
+
+		generate_navigation_mesh();
 		generate_voronoi_diagram();
+	}
+
+	void find_path(Vector2& start, Vector2& end)
+	{
+		if (start == end) return;
+
+		Vector2 start_vertex = find_closest_vertex(start);
+		Vector2 end_vertex = find_closest_vertex(end);
+
+		Node* current;
+
+		Node* start_node = new Node(start_vertex, nullptr);
+
+		start_node->g_cost = 0;
+		start_node->h_cost = heuristic(start_node->position, end_vertex);
+
+		nodes[start_node->position] = start_node;
+
+		node_queue.push(start_node);
+
+		while (!node_queue.empty())
+		{
+			current = node_queue.top();
+			node_queue.pop();
+
+			if (current->position == end_vertex)
+			{
+				path.clear();
+
+				while (current != nullptr)
+				{
+					path.push_back(current->position);
+					current = current->parent;
+				}
+
+				std::reverse(path.begin(), path.end());
+
+				for (auto& node : nodes) delete node.second;
+				nodes.clear();
+
+				path.insert(path.begin(), start);
+				path.push_back(end);
+
+				while (!node_queue.empty())
+					node_queue.pop();
+				closed_set.clear();
+
+				return;
+			}
+
+			closed_set.insert(current->position);
+
+			for (Vector2& neighbor : navigation_mesh[current->position])
+			{
+				if (closed_set.find(neighbor) != closed_set.end()) continue;
+
+				double tentative_g = current->g_cost + heuristic(current->position, neighbor);
+
+				Node* neighbor_node = new Node(neighbor, current);
+				neighbor_node->g_cost = tentative_g;
+				neighbor_node->h_cost = heuristic(neighbor_node->position, end_vertex);
+
+				node_queue.push(neighbor_node);
+
+				if (nodes.find(neighbor) != nodes.end()) delete nodes[neighbor];
+
+				nodes[neighbor] = neighbor_node;
+			}
+		}
+
+		for (auto& node : nodes) delete node.second;
+		nodes.clear();
 	}
 
 	void render(SDL_Renderer* renderer)
 	{
 		render_trianglation(renderer);
-		render_voronoi_diagram(renderer);
+		render_path(renderer);
+	}
+
+	void render_voronoi_diagram(SDL_Renderer* renderer)
+	{
+		SDL_SetRenderDrawColor(renderer, 100, 100, 255, 255);
+
+		for (const Vector2& vertex : voronoi_vertices)
+		{
+			for (const Vector2& v : voronoi_diagram[vertex])
+			{
+				SDL_RenderDrawLine(renderer, vertex.x, vertex.y, v.x, v.y);
+			}
+		}
+	}
+
+	void reset()
+	{
+		points.clear();
+		path.clear();
+		triangles.clear();
+
+		while (!constraint_edges.empty()) constraint_edges.pop();
+		while (!node_queue.empty()) node_queue.pop();
+
+		closed_set.clear();
+
+		for (const Vector2& vertex : voronoi_vertices) voronoi_diagram[vertex].clear();
+		for (const Vector2& centroid : centroids) navigation_mesh[centroid].clear();
+		
+		centroids.clear();
+		voronoi_vertices.clear();
+
+		for (auto& node : nodes) delete node.second;
+		nodes.clear();
 	}
 
 private:
 	std::vector<Vector2> points;
+	std::vector<Vector2> centroids;
+	std::vector<Vector2> path;
 	std::vector<Vector2> voronoi_vertices;
+
 	std::vector<Triangle> triangles;
 
 	std::queue<Edge> constraint_edges;
 
+	std::priority_queue<Node*, std::vector<Node*>, NodeCompare> node_queue;
+
+	std::unordered_set<Vector2> closed_set;
+
+	std::unordered_map<Vector2, std::vector<Vector2>> navigation_mesh;
 	std::unordered_map<Vector2, std::vector<Vector2>> voronoi_diagram;
+
+	std::unordered_map<Vector2, Node*> nodes;	//存储节点指针对象，用于内存管理
 
 private:
 	void add_point(const Vector2& point)
@@ -239,6 +390,8 @@ private:
 			{
 				Vector2 mid_point = Vector2((constraint_edge.p1.x + constraint_edge.p2.x) / 2, (constraint_edge.p1.y + constraint_edge.p2.y) / 2);
 
+				points.push_back(mid_point);
+
 				constraint_edges.push(Edge(constraint_edge.p1, mid_point));
 				constraint_edges.push(Edge(constraint_edge.p2, mid_point));
 
@@ -246,6 +399,40 @@ private:
 			}
 
 			constraint_edges.pop();
+		}
+	}
+
+	Vector2 find_closest_vertex(Vector2& point)
+	{
+		Vector2 closest_vertex = centroids[0];
+
+		for (Vector2 centroid : centroids)
+			if (heuristic(point, closest_vertex) > heuristic(point, centroid)) closest_vertex = centroid;
+
+		return closest_vertex;
+	}
+
+	void generate_navigation_mesh()
+	{
+		for (const Triangle& triangle : triangles)
+		{
+			Vector2 centroid = triangle.get_centroid();
+
+			centroids.push_back(centroid);
+
+			for (const Triangle& t : triangles)
+			{
+				if (&triangle == &t) continue;
+
+				if (triangle.contains_edge(Edge(t.p1, t.p2)) ||
+					triangle.contains_edge(Edge(t.p2, t.p3)) ||
+					triangle.contains_edge(Edge(t.p3, t.p1)))
+				{
+					navigation_mesh[centroid].push_back(t.get_centroid());
+				}
+
+				if (navigation_mesh[centroid].size() == 3) break;
+			}
 		}
 	}
 
@@ -263,7 +450,7 @@ private:
 
 				if (triangle.contains_edge(Edge(t.p1, t.p2)) ||
 					triangle.contains_edge(Edge(t.p2, t.p3)) ||
-					triangle.contains_edge(Edge(t.p1, t.p1)))
+					triangle.contains_edge(Edge(t.p3, t.p1)))
 				{
 					voronoi_diagram[voronoi_vertex].push_back(t.get_circumcenter());
 				}
@@ -275,22 +462,21 @@ private:
 
 	void render_trianglation(SDL_Renderer* renderer)
 	{
-		SDL_SetRenderDrawColor(renderer, 100, 255, 100, 255);
+		SDL_SetRenderDrawColor(renderer, 150, 255, 150, 255);
 
 		for (const Triangle& triangle : triangles)
 			triangle.render(renderer);
 	}
 
-	void render_voronoi_diagram(SDL_Renderer* renderer)
+	void render_path(SDL_Renderer* renderer)
 	{
+		if (path.size() < 2) return;
+
 		SDL_SetRenderDrawColor(renderer, 100, 100, 255, 255);
 
-		for (const Vector2& vertex : voronoi_vertices)
+		for (int i = 0; i < path.size() - 1; i++)
 		{
-			for (const Vector2& v : voronoi_diagram[vertex])
-			{
-				SDL_RenderDrawLine(renderer, vertex.x, vertex.y, v.x, v.y);
-			}
+			SDL_RenderDrawLine(renderer, path[i].x, path[i].y, path[i + 1].x, path[i + 1].y);
 		}
 	}
 

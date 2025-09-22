@@ -41,38 +41,41 @@ public:
 					}
 				}
 			}
+
 			else
 			{
-				current_polygon.vertices.push_back(Vector2{ (double)x,(double)y });
+				if (!is_mesh_generated) 
+				{
+					current_polygon.vertices.push_back(Vector2((double)x, (double)y));
+				}
+
+				else if (!is_start_set)
+				{
+					start = Vector2((double)x, (double)y);
+					is_start_set = true;
+				}
+
+				else
+				{
+					end = Vector2((double)x, (double)y);
+					Mesh::instance()->find_path(start, end);
+				}
 			}
 		}
 	}
 
-	void render()
+	void update()
 	{
-		for (Button button : button_list)
-		{
-			button.render();
-		}
-
-		Mesh::instance()->render(renderer);
-
-		SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-
-		for (Polygon polygon : polygons) polygon.render(renderer);
-		
-		for (int i = 0; current_polygon.vertices.size() > 1 && i < current_polygon.vertices.size() - 1; i++)
-		{
-			SDL_RenderDrawLine(renderer, current_polygon.vertices[i].x, current_polygon.vertices[i].y,
-				current_polygon.vertices[i + 1].x, current_polygon.vertices[i + 1].y);
-		}
+		render();
 	}
 
 public:
 	Scene(SDL_Renderer* _renderer, SDL_Window* _window) :renderer(_renderer), window(_window)
 	{
-		button_list.push_back(Button(renderer, window, { 20, 20, 100, 50 }, ResourcesManager::instance()->get_font(), "New", std::bind(&Scene::on_New_click, this)));
-		button_list.push_back(Button(renderer, window, { 20, 90, 100, 50 }, ResourcesManager::instance()->get_font(), "Finish", std::bind(&Scene::on_Finish_click, this)));
+		button_list.push_back(Button(renderer, window, { 20, 20, 140, 50 }, ResourcesManager::instance()->get_font(), "New Polygon", std::bind(&Scene::on_New_Polygon_click, this)));
+		button_list.push_back(Button(renderer, window, { 20, 90, 140, 50 }, ResourcesManager::instance()->get_font(), "Generate Mesh", std::bind(&Scene::on_Generate_Mesh_click, this)));
+		button_list.push_back(Button(renderer, window, { 20, 160, 140, 50 }, ResourcesManager::instance()->get_font(), "Voronoi Diagram", std::bind(&Scene::on_Voronoi_Diagram_click, this)));
+		button_list.push_back(Button(renderer, window, { 20, 230, 140, 50 }, ResourcesManager::instance()->get_font(), "Reset", std::bind(&Scene::on_Reset_click, this)));
 
 		current_polygon = Polygon({}, false);
 	}
@@ -84,14 +87,20 @@ private:
 
 	std::vector<Button> button_list;
 
+	Vector2 start;
+	Vector2 end;
+
 	Polygon current_polygon;
 	std::vector<Polygon> polygons;
 
 	bool is_mouse_hovering_button;
+	bool is_mesh_generated = false;
+	bool is_voronoi_diagram_generated = false;
+	bool is_start_set = false;
 
 private:
 
-	void on_New_click()
+	void on_New_Polygon_click()
 	{
 		if (current_polygon.vertices.size() >= 3)
 		{
@@ -101,7 +110,7 @@ private:
 		}
 	}
 
-	void on_Finish_click()
+	void on_Generate_Mesh_click()
 	{
 		if (current_polygon.vertices.size() >= 3)
 		{
@@ -116,6 +125,49 @@ private:
 
 		Mesh::instance()->instialize();
 		Mesh::instance()->ganerate_mesh(polygons);
+
+		is_mesh_generated = true;
+	}
+
+	void on_Voronoi_Diagram_click()
+	{
+		if (is_mesh_generated)
+		{
+			is_voronoi_diagram_generated = true;
+		}
+	}
+
+	void on_Reset_click()
+	{
+		polygons.clear();
+		is_mesh_generated = false;
+		is_voronoi_diagram_generated = false;
+		is_start_set = false;
+
+		Mesh::instance()->reset();
+	}
+
+	void render()
+	{
+		for (Button button : button_list)
+		{
+			button.render();
+		}
+
+		Mesh::instance()->render(renderer);
+
+		if(is_voronoi_diagram_generated)
+			Mesh::instance()->render_voronoi_diagram(renderer);
+
+		SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+
+		for (Polygon polygon : polygons) polygon.render(renderer);
+
+		for (int i = 0; current_polygon.vertices.size() > 1 && i < current_polygon.vertices.size() - 1; i++)
+		{
+			SDL_RenderDrawLine(renderer, current_polygon.vertices[i].x, current_polygon.vertices[i].y,
+				current_polygon.vertices[i + 1].x, current_polygon.vertices[i + 1].y);
+		}
 	}
 };
 
