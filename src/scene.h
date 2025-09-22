@@ -105,7 +105,7 @@ private:
 		if (current_polygon.vertices.size() >= 3)
 		{
 			current_polygon.done = true;
-			polygons.push_back(current_polygon);
+			Mesh::instance()->add_polygon(current_polygon);
 			current_polygon = Polygon({}, false);
 		}
 	}
@@ -115,7 +115,7 @@ private:
 		if (current_polygon.vertices.size() >= 3)
 		{
 			current_polygon.done = true;
-			polygons.push_back(current_polygon);
+			Mesh::instance()->add_polygon(current_polygon);
 			current_polygon = Polygon({}, false);
 		}
 		else
@@ -124,7 +124,7 @@ private:
 		}
 
 		Mesh::instance()->instialize();
-		Mesh::instance()->ganerate_mesh(polygons);
+		Mesh::instance()->ganerate_mesh();
 
 		is_mesh_generated = true;
 	}
@@ -160,8 +160,6 @@ private:
 			Mesh::instance()->render_voronoi_diagram(renderer);
 
 		SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-
-		for (Polygon polygon : polygons) polygon.render(renderer);
 
 		for (int i = 0; current_polygon.vertices.size() > 1 && i < current_polygon.vertices.size() - 1; i++)
 		{

@@ -169,8 +169,13 @@ public:
 		triangles.push_back(Triangle(left_up, right_up, left_down));
 		triangles.push_back(Triangle(left_down, right_down, right_up));
 	}
+	
+	void add_polygon(Polygon& polygon)
+	{
+		polygons.push_back(polygon);
+	}
 
-	void ganerate_mesh(std::vector<Polygon> polygons)
+	void ganerate_mesh()
 	{
 		for (const Polygon& polygon : polygons)
 		{
@@ -195,6 +200,11 @@ public:
 
 	void find_path(Vector2& start, Vector2& end)
 	{
+		for (const Polygon& polygon : polygons)
+		{
+			if (is_point_in_polygon(start, polygon) || is_point_in_polygon(end, polygon)) return;
+		}
+
 		if (start == end) return;
 
 		Vector2 start_vertex = find_closest_vertex(start);
@@ -268,6 +278,7 @@ public:
 	void render(SDL_Renderer* renderer)
 	{
 		render_trianglation(renderer);
+		render_polygon(renderer);
 		render_path(renderer);
 	}
 
@@ -288,6 +299,7 @@ public:
 	{
 		points.clear();
 		path.clear();
+		polygons.clear();
 		triangles.clear();
 
 		while (!constraint_edges.empty()) constraint_edges.pop();
@@ -310,6 +322,8 @@ private:
 	std::vector<Vector2> centroids;
 	std::vector<Vector2> path;
 	std::vector<Vector2> voronoi_vertices;
+
+	std::vector<Polygon> polygons;
 
 	std::vector<Triangle> triangles;
 
@@ -412,11 +426,46 @@ private:
 		return closest_vertex;
 	}
 
+	bool is_point_in_polygon(const Vector2& point, const Polygon& polygon)
+	{
+		int crossings = 0;
+
+		for (int i = 0; i < polygon.vertices.size(); i++)
+		{
+			Vector2 vertex1 = polygon.vertices[i];
+			Vector2 vertex2 = polygon.vertices[(i + 1) % polygon.vertices.size()];
+
+			if (point == vertex1 || point == vertex2) return true;
+
+			if ((vertex1.y > point.y) != (vertex2.y > point.y))
+			{
+				double x_intersect = (vertex2.x - vertex1.x) * (point.y - vertex1.y) / (vertex2.y - vertex1.y) + vertex1.x;
+
+				if (point.x < x_intersect) crossings++;
+			}
+		}
+
+		return (crossings % 2) == 1;
+	}
+
 	void generate_navigation_mesh()
 	{
 		for (const Triangle& triangle : triangles)
 		{
 			Vector2 centroid = triangle.get_centroid();
+
+			bool is_in_polygon = false;
+
+			for (const Polygon& polygon : polygons)
+			{
+				if (is_point_in_polygon(centroid, polygon))
+				{
+					is_in_polygon = true;
+					break;
+				}
+			}
+
+			if (is_in_polygon) continue;
 
 			centroids.push_back(centroid);
 
@@ -424,14 +473,36 @@ private:
 			{
 				if (&triangle == &t) continue;
 
+				Vector2 t_centroid = t.get_centroid();
+
+				bool t_in_polygon = false;
+				for (const Polygon& polygon : polygons)
+				{
+					if (is_point_in_polygon(t_centroid, polygon)) 
+					{
+						t_in_polygon = true;
+						break;
+					}
+				}
+
+				if (t_in_polygon) continue;
+
 				if (triangle.contains_edge(Edge(t.p1, t.p2)) ||
 					triangle.contains_edge(Edge(t.p2, t.p3)) ||
 					triangle.contains_edge(Edge(t.p3, t.p1)))
 				{
-					navigation_mesh[centroid].push_back(t.get_centroid());
+					navigation_mesh[centroid].push_back(t_centroid);
 				}
 
 				if (navigation_mesh[centroid].size() == 3) break;
+			}
+		}
+
+		for (Vector2& centroid : centroids)
+		{
+			for (Polygon& polygon : polygons)
+			{
+				if (is_point_in_polygon(centroid, polygon)) closed_set.insert(centroid);
 			}
 		}
 	}
@@ -466,6 +537,13 @@ private:
 
 		for (const Triangle& triangle : triangles)
 			triangle.render(renderer);
+	}
+
+	void render_polygon(SDL_Renderer* renderer)
+	{
+		SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+
+		for (Polygon polygon : polygons) polygon.render(renderer);
 	}
 
 	void render_path(SDL_Renderer* renderer)
